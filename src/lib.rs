@@ -3,7 +3,6 @@
 //! A [`Waker`] is just a fancy callback. This crate converts regular closures into wakers.
 
 #![no_std]
-#![forbid(unsafe_code)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 #![doc(
     html_favicon_url = "https://raw.githubusercontent.com/smol-rs/smol/master/assets/images/logo_fullsize_transparent.png"
@@ -12,13 +11,13 @@
     html_logo_url = "https://raw.githubusercontent.com/smol-rs/smol/master/assets/images/logo_fullsize_transparent.png"
 )]
 
-#[cfg(not(feature = "portable-atomic"))]
+#[cfg(all(not(feature = "portable-atomic"), feature = "alloc"))]
 extern crate alloc;
 
-#[cfg(not(feature = "portable-atomic"))]
+#[cfg(all(not(feature = "portable-atomic"), feature = "alloc"))]
 use alloc::{sync::Arc, task::Wake};
 use core::task::Waker;
-#[cfg(feature = "portable-atomic")]
+#[cfg(all(feature = "portable-atomic", feature = "alloc"))]
 use portable_atomic_util::{task::Wake, Arc};
 
 /// Converts a closure into a [`Waker`].
@@ -41,7 +40,7 @@ pub fn waker_fn<F: Fn() + Send + Sync + 'static>(f: F) -> Waker {
 
 struct Helper<F>(F);
 
-#[cfg(not(feature = "portable-atomic"))]
+#[cfg(all(not(feature = "portable-atomic"), feature = "alloc"))]
 impl<F: Fn() + Send + Sync + 'static> Wake for Helper<F> {
     fn wake(self: Arc<Self>) {
         (self.0)();
@@ -54,7 +53,7 @@ impl<F: Fn() + Send + Sync + 'static> Wake for Helper<F> {
 // Note: Unlike std::task::Wake, all methods take `this:` instead of `self:`.
 // This is because using portable_atomic_util::Arc as a receiver requires the
 // unstable arbitrary_self_types feature.
-#[cfg(feature = "portable-atomic")]
+#[cfg(all(feature = "portable-atomic", feature = "alloc"))]
 impl<F: Fn() + Send + Sync + 'static> Wake for Helper<F> {
     fn wake(this: Arc<Self>) {
         (this.0)();
@@ -63,4 +62,21 @@ impl<F: Fn() + Send + Sync + 'static> Wake for Helper<F> {
     fn wake_by_ref(this: &Arc<Self>) {
         (this.0)();
     }
+}
+
+pub const fn waker_fn_ptr(f: fn()) -> Waker {
+    use core::mem::transmute;
+    use core::task::{RawWaker, RawWakerVTable, Waker};
+
+    static VTABLE: RawWakerVTable = unsafe {
+        RawWakerVTable::new(
+            |this| RawWaker::new(this, &VTABLE),
+            |this| transmute::<*const (), fn()>(this)(),
+            |this| transmute::<*const (), fn()>(this)(),
+            |_| {},
+        )
+    };
+    let raw = RawWaker::new(f as *const (), &VTABLE);
+
+    unsafe { Waker::from_raw(raw) }
 }

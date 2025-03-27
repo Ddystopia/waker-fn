@@ -18,7 +18,9 @@ exclude = ["/.*"]
 
 [features]
 # Uses portable-atomic polyfill atomics on targets without them
+default = ["alloc"]
 portable-atomic = ["portable-atomic-util"]
+alloc = []
 
 [dependencies]
 portable-atomic-util = { version = "0.2", optional = true, default-features = false, features = ["alloc"] }
